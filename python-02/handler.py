@@ -119,9 +119,34 @@ def handler(job):
                 destination_path=f"{job_id}.mp4",
                 content_type="video/mp4"
             )
+
+        # 4. Upload results JSON (for large data)
+        print(f"[STEP 4/5] Uploading results JSON...")
+        results_json_url = None
+        results_path = os.path.join(work_dir, "results.json")
         
-        # 4. Build response
-        print(f"[STEP 4/4] Building response...")
+        # Construct results object
+        results_data = {
+            "job_id": job_id,
+            "frames": landmarks,
+            "metadata": metadata
+        }
+        
+        # Save to file
+        with open(results_path, 'w') as f:
+            json.dump(results_data, f, cls=NumpyEncoder)
+            
+        # Upload to analysis-results bucket
+        if os.path.exists(results_path):
+            results_json_url = uploader.upload_file(
+                bucket="analysis-results",
+                file_path=results_path,
+                destination_path=f"{job_id}/results.json",
+                content_type="application/json"
+            )
+
+        # 5. Build response
+        print(f"[STEP 5/5] Building response...")
         processing_time = time.time() - start_time
         
         print(f"=== JOB COMPLETE: {job_id} in {processing_time:.1f}s ===")
@@ -130,6 +155,7 @@ def handler(job):
             "status": "success",
             "job_id": job_id,
             "annotated_video_url": annotated_video_url,
+            "results_json_url": results_json_url,
             "frames": landmarks, # Structure per python/track.py
             "landmarks": landmarks, # Alias for backward compatibility
             "metadata": {
