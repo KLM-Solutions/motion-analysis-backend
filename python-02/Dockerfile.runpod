@@ -32,10 +32,10 @@ RUN apt-get update --fix-missing && \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Copy Python requirements and install
+# Copy Python requirements and install (ignore pre-installed packages)
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --ignore-installed -r requirements.txt
 
 # Reinstall mediapipe with proper dependencies (version 0.10.14)
 RUN pip uninstall -y mediapipe && \
