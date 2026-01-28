@@ -130,7 +130,8 @@ def handler(job):
             "status": "success",
             "job_id": job_id,
             "annotated_video_url": annotated_video_url,
-            "landmarks": landmarks,
+            "frames": landmarks_list, # Structure per python/track.py
+            "landmarks": landmarks_list, # Alias for backward compatibility
             "metadata": {
                 **metadata,
                 "processing_time_sec": round(processing_time, 2)

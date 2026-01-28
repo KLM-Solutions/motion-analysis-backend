@@ -9,6 +9,8 @@ import json
 import numpy as np
 import mediapipe as mp
 from typing import List, Dict, Any, Tuple
+from mediapipe.python.solutions import drawing_utils as mp_drawing
+from mediapipe.python.solutions import pose as mp_pose
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -27,21 +29,24 @@ class VideoAnnotator:
     """Processes videos with MediaPipe pose detection and skeleton drawing."""
     
     # MediaPipe pose connections for skeleton drawing
-    POSE_CONNECTIONS = [
-        (0, 1), (1, 2), (2, 3), (3, 7),      # Face right
-        (0, 4), (4, 5), (5, 6), (6, 8),      # Face left
-        (9, 10),                              # Mouth
-        (11, 12),                             # Shoulders
-        (11, 13), (13, 15),                   # Left arm
-        (12, 14), (14, 16),                   # Right arm
-        (11, 23), (12, 24),                   # Torso
-        (23, 24),                             # Hips
-        (23, 25), (25, 27),                   # Left leg
-        (24, 26), (26, 28),                   # Right leg
-        (15, 17), (15, 19), (15, 21),         # Left hand
-        (16, 18), (16, 20), (16, 22),         # Right hand
-        (27, 29), (27, 31),                   # Left foot
-        (28, 30), (28, 32),                   # Right foot
+    # Landmark names for mapping indices to strings
+    LANDMARK_NAMES = [
+        "nose",
+        "left_eye_inner", "left_eye", "left_eye_outer",
+        "right_eye_inner", "right_eye", "right_eye_outer",
+        "left_ear", "right_ear",
+        "mouth_left", "mouth_right",
+        "left_shoulder", "right_shoulder",
+        "left_elbow", "right_elbow",
+        "left_wrist", "right_wrist",
+        "left_pinky", "right_pinky",
+        "left_index", "right_index",
+        "left_thumb", "right_thumb",
+        "left_hip", "right_hip",
+        "left_knee", "right_knee",
+        "left_ankle", "right_ankle",
+        "left_heel", "right_heel",
+        "left_foot_index", "right_foot_index",
     ]
     
     def __init__(
@@ -104,18 +109,19 @@ class VideoAnnotator:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.pose.process(rgb_frame)
             
-            # Extract landmarks
-            frame_landmarks = None
+            # Extract landmarks with names
+            frame_landmarks_list = None
             if results.pose_landmarks:
-                frame_landmarks = self._extract_landmarks(results.pose_landmarks)
-                # Draw skeleton on frame
-                self._draw_skeleton(frame, results.pose_landmarks, width, height)
+                frame_landmarks_list = self._extract_landmarks(results.pose_landmarks)
+                # Draw skeleton on frame (using MP utils)
+                self._draw_skeleton(frame, results.pose_landmarks)
             
-            # Store landmarks data
+            # Store landmarks data matching original format
+            # Original: frames object with keys like frameIdx, timestampSec, landmarks
             landmarks_list.append({
-                "frame_index": frame_index,
-                "timestamp_sec": round(frame_index / fps, 3),
-                "pose": frame_landmarks
+                "frameIdx": frame_index,
+                "timestampSec": round(frame_index / fps, 3),
+                "landmarks": frame_landmarks_list
             })
             
             # Write annotated frame
@@ -129,6 +135,9 @@ class VideoAnnotator:
         cap.release()
         out.release()
         
+        # Original script returns full structure, but here we return components
+        # to be assembled by handler.py
+        
         metadata = {
             "fps": int(fps),
             "total_frames": total_frames,
@@ -139,60 +148,67 @@ class VideoAnnotator:
         
         return landmarks_list, metadata
     
-    def _extract_landmarks(self, pose_landmarks) -> List[Dict[str, float]]:
-        """Extract 33 pose landmarks to list of dicts."""
+    def _extract_landmarks(self, pose_landmarks) -> List[Dict[str, Any]]:
+        """Extract landmarks with names to list of dicts."""
         landmarks = []
-        for lm in pose_landmarks.landmark:
+        for i, lm in enumerate(pose_landmarks.landmark):
+            name = self.LANDMARK_NAMES[i] if i < len(self.LANDMARK_NAMES) else ""
             landmarks.append({
-                "x": round(float(lm.x), 4),
-                "y": round(float(lm.y), 4),
-                "z": round(float(lm.z), 4),
-                "visibility": round(float(lm.visibility), 3)
+                "name": name,
+                "x": float(lm.x),
+                "y": float(lm.y),
+                "z": float(lm.z),
+                "visibility": float(lm.visibility)
             })
         return landmarks
     
     def _draw_skeleton(
         self,
         frame: np.ndarray,
-        pose_landmarks,
-        width: int,
-        height: int
+        pose_landmarks
     ) -> None:
-        """Draw skeleton overlay on frame."""
-        landmarks = pose_landmarks.landmark
+        """Draw skeleton overlay on frame using MediaPipe drawing utils."""
         
-        # Draw connections (lines)
-        for start_idx, end_idx in self.POSE_CONNECTIONS:
-            start = landmarks[start_idx]
-            end = landmarks[end_idx]
-            
-            # Skip if low visibility
-            if start.visibility < 0.5 or end.visibility < 0.5:
-                continue
-            
-            start_point = (int(start.x * width), int(start.y * height))
-            end_point = (int(end.x * width), int(end.y * height))
-            
-            cv2.line(frame, start_point, end_point, (0, 255, 0), 2)
+        # Visualization specs from original script
+        landmark_spec = mp_drawing.DrawingSpec(
+            color=(0, 0, 255),     # RED joints
+            thickness=4,
+            circle_radius=4
+        )
+        connection_spec = mp_drawing.DrawingSpec(
+            color=(0, 255, 255),   # YELLOW connections
+            thickness=3,
+            circle_radius=2
+        )
         
-        # Draw landmarks (circles)
-        for lm in landmarks:
-            if lm.visibility < 0.5:
-                continue
-            
-            x = int(lm.x * width)
-            y = int(lm.y * height)
-            
-            # Color based on visibility
-            if lm.visibility > 0.8:
-                color = (0, 255, 0)    # Green - high visibility
-            elif lm.visibility > 0.5:
-                color = (0, 255, 255)  # Yellow - medium visibility
-            else:
-                color = (0, 0, 255)    # Red - low visibility
-            
-            cv2.circle(frame, (x, y), 5, color, -1)
-            cv2.circle(frame, (x, y), 5, (255, 255, 255), 1)
+        # Filter connections to exclude head (indices 0-10)
+        filtered_connections = [
+            c for c in mp_pose.POSE_CONNECTIONS 
+            if c[0] > 10 and c[1] > 10
+        ]
+        
+        # Hide head landmarks (visibility=0) strictly for drawing (copy not needed if we don't return these modified objects)
+        # However, MP modifies in-place usually. 
+        # The extract_landmarks was called BEFORE this, so we are safe to modify visibility now if we want.
+        # But to be safe and avoid side effects on any future usage, we can just let MP draw and it might draw head.
+        # Original script explicitly set visibility to 0.0 for idx < 11.
+        
+        # Create a copy or just accept we modify the object for drawing
+        # Since we extracted data already, modifying visibility here is fine.
+        for idx in range(11): 
+            if idx < len(pose_landmarks.landmark):
+                pose_landmarks.landmark[idx].visibility = 0.0
+                
+        try:
+            mp_drawing.draw_landmarks(
+                frame,
+                pose_landmarks,
+                filtered_connections,
+                landmark_drawing_spec=landmark_spec,
+                connection_drawing_spec=connection_spec
+            )
+        except Exception as e:
+            print(f"Drawing error: {e}")
     
     def close(self):
         """Release MediaPipe resources."""
