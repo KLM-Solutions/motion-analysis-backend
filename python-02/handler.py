@@ -151,13 +151,17 @@ def handler(job):
         
         print(f"=== JOB COMPLETE: {job_id} in {processing_time:.1f}s ===")
         
+        # Optimizing payload size: if JSON URL exists, don't send frames inline
+        # This prevents FUNCTION_PAYLOAD_TOO_LARGE errors in Serverless/Lambda
+        response_landmarks = [] if results_json_url else landmarks
+        
         return {
             "status": "success",
             "job_id": job_id,
             "annotated_video_url": annotated_video_url,
             "results_json_url": results_json_url,
-            "frames": landmarks, # Structure per python/track.py
-            "landmarks": landmarks, # Alias for backward compatibility
+            "frames": response_landmarks, # Empty if URL exists, otherwise full data
+            "landmarks": response_landmarks, # Alias for backward compatibility
             "metadata": {
                 **metadata,
                 "processing_time_sec": round(processing_time, 2)
