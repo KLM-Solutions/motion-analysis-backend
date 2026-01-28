@@ -6,6 +6,8 @@ Processes video frames with MediaPipe Pose detection and draws skeleton overlays
 
 import cv2
 import json
+import os
+import subprocess
 import numpy as np
 import mediapipe as mp
 from typing import List, Dict, Any, Tuple
@@ -135,6 +137,21 @@ class VideoAnnotator:
         cap.release()
         out.release()
         
+        # Convert to H.264 for browser compatibility
+        print("Converting to H.264...")
+        temp_raw = output_path + ".raw.mp4"
+        try:
+            if os.path.exists(output_path):
+                os.rename(output_path, temp_raw)
+                self._convert_to_h264(temp_raw, output_path)
+                # Clean up raw file
+                if os.path.exists(temp_raw):
+                    os.remove(temp_raw)
+        except Exception as e:
+            print(f"Warning: H.264 conversion failed, falling back to raw mp4v: {e}")
+            if os.path.exists(temp_raw) and not os.path.exists(output_path):
+                os.rename(temp_raw, output_path)
+        
         # Original script returns full structure, but here we return components
         # to be assembled by handler.py
         
@@ -209,6 +226,25 @@ class VideoAnnotator:
             )
         except Exception as e:
             print(f"Drawing error: {e}")
+    
+    def _convert_to_h264(self, input_path: str, output_path: str) -> None:
+        """Convert video to H.264 using FFmpeg for browser compatibility."""
+        try:
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-crf', '23',
+                '-preset', 'fast',
+                '-y',
+                '-loglevel', 'error',
+                output_path
+            ]
+            subprocess.run(cmd, check=True)
+            print("✓ Converted to H.264")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"FFmpeg failed with code {e.returncode}")
     
     def close(self):
         """Release MediaPipe resources."""
